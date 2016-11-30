@@ -2,14 +2,29 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectInputStream;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
+import java.net.*;
+import java.util.*;
 
 /**
  * Created by geddingsbarrineau on 11/28/16.
  */
 public class Broker {
+
+    private InetAddress address;
+    private int port = 57;
+    private DatagramSocket datagramSocket;
+    private Map<String, Set<SocketAddress>> subscribers;
+
+    public Broker() {
+        try {
+            String localHostAddress = InetAddress.getLocalHost().getHostAddress();
+            address = InetAddress.getByName(localHostAddress);
+            datagramSocket = new DatagramSocket(port);
+        } catch (UnknownHostException | SocketException e) {
+            e.printStackTrace();
+        }
+        subscribers = new HashMap<>();
+    }
 
     public static Object createObjectFromBytes(byte[] yourBytes) {
         ByteArrayInputStream bis = new ByteArrayInputStream(yourBytes);
@@ -25,44 +40,75 @@ public class Broker {
                     in.close();
                 }
             } catch (IOException ex) {
-                // ignore close exception
             }
         }
         return null;
     }
 
-    public static void main(String[] args) {
-        new Broker().run(57);
-    }
-
-    public void run(int port) {
+    public void startListening() {
         try {
-            DatagramSocket serverSocket = new DatagramSocket(port);
             byte[] receiveData = new byte[10000];
 
             System.out.printf("Listening on udp:%s:%d%n",
-                    InetAddress.getLocalHost().getHostAddress(), port);
+                    address, port);
             DatagramPacket receivePacket = new DatagramPacket(receiveData,
                     receiveData.length);
 
-            while(true)
-            {
-                serverSocket.receive(receivePacket);
-                Object sentence = createObjectFromBytes(receivePacket.getData());
-//                String sentence = new String( receivePacket.getData(), 0,
-//                        receivePacket.getLength() );
-                System.out.println("RECEIVED: " + sentence);
-                // now send acknowledgement packet back to sender
-                InetAddress IPAddress = receivePacket.getAddress();
-                String sendString = "polo";
-                byte[] sendData = sendString.getBytes("UTF-8");
-                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length,
-                        IPAddress, receivePacket.getPort());
-                serverSocket.send(sendPacket);
+            while (true) {
+                datagramSocket.receive(receivePacket);
+                Optional<Message> message = Optional.ofNullable((Message) createObjectFromBytes(receivePacket.getData()));
+                message.ifPresent(message1 -> handleMessage(message1, receivePacket.getSocketAddress()));
             }
         } catch (IOException e) {
-            System.out.println(e);
+            e.printStackTrace();
         }
         // should close serverSocket in finally block
+    }
+
+    public void handleMessage(Message message, SocketAddress socketAddress) {
+        switch (message.getMessageType()) {
+            case SUBSCRIBE:
+                String sendString = "Thank you for subscribing to " + message.getTopic() + "!";
+                addSubscriber(message.getTopic(), socketAddress);
+                byte[] sendData = sendString.getBytes();
+                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, socketAddress);
+                try {
+                    datagramSocket.send(sendPacket);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                break;
+            case PUBLISH:
+                System.out.println("Your message '" + message.getText() + "' will be published to all subscribers of "
+                        + message.getTopic() + "!");
+                for (SocketAddress sa : subscribers.get(message.getTopic())) {
+                    try {
+                        datagramSocket.send(new DatagramPacket(message.getText().getBytes(),
+                                message.getText().getBytes().length, sa));
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+                break;
+            case CONNECT:
+            case DISCONNECT:
+            case UNSUBSCRIBE:
+            case NONE:
+            default:
+                System.out.println("Message handling not yet implemented for message type " + message.getMessageType());
+                break;
+        }
+    }
+
+    public void addSubscriber(String topic, SocketAddress subscriber) {
+        if (!subscribers.containsKey(topic)) {
+            subscribers.put(topic, new HashSet<>());
+        }
+        subscribers.get(topic).add(subscriber);
+    }
+
+    public static void main(String[] args) {
+        Broker broker = new Broker();
+        broker.startListening();
     }
 }
