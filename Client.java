@@ -3,9 +3,13 @@ import java.io.IOException;
 import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.net.*;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 /**
  * Created by geddingsbarrineau on 11/28/16.
@@ -18,6 +22,7 @@ public class Client {
     private InetAddress brokerAddress;
     private int brokerPort = 57;
     private DatagramSocket datagramSocket;
+    private Instant initialTime;
 
     private Client() {
         try {
@@ -68,6 +73,7 @@ public class Client {
     }
 
     private void sendDatagram(DatagramPacket datagram) {
+        initialTime = Instant.now();
         try {
             datagramSocket.send(datagram);
         } catch (IOException e) {
@@ -98,15 +104,17 @@ public class Client {
         SubscriptionsHandler(DatagramSocket socket) { this.socket = socket; }
         public void run() {
             try {
-                byte[] receiveData = new byte[10000];
-                System.out.println("Listening for subscriber messages..");
-                DatagramPacket receivePacket = new DatagramPacket(receiveData,
-                        receiveData.length);
-
                 while (true) {
+                    byte[] receiveData = new byte[100];
+                    //System.out.println("Listening for subscriber messages..");
+                    DatagramPacket receivePacket = new DatagramPacket(receiveData,
+                            receiveData.length);
                     datagramSocket.receive(receivePacket);
-                    byte[] sentence = receivePacket.getData();
-                    System.out.println("RECEIVED: " + new String(sentence));
+                    
+                    Instant currentTime = Instant.now();
+                    String sentence = new String(receivePacket.getData()).trim();
+                    System.out.println("Message '" + sentence + "' received in "
+                            + ChronoUnit.MILLIS.between(Instant.parse(sentence), currentTime) + " ms.");
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -115,13 +123,28 @@ public class Client {
     }
 
     public static void main(String[] args) throws IOException {
-        Client client1 = new Client();
-        client1.subscribeToPublisher();
+        int numSubscribers = Integer.valueOf(args[0]);
+        int numPublishers = Integer.valueOf(args[1]);
 
-        Client client2 = new Client();
-        client2.subscribeToPublisher();
+        ExecutorService executor = Executors.newCachedThreadPool();
+        
+//        executor.submit(() -> IntStream.range(0, numSubscribers)
+//                .mapToObj(i -> new Client())
+//                .forEach(Client::subscribeToPublisher));
+        IntStream.range(0, numSubscribers)
+                .mapToObj(i -> new Client())
+                .forEach(Client::subscribeToPublisher);
+        
+        
+        executor.submit(() -> IntStream.range(0, numPublishers)
+                .mapToObj(i -> new Client())
+                .forEach(c -> c.publish(Instant.now().toString())));
 
-        Client client3 = new Client();
-        client3.publish("This is my first published message....");
+        try {
+            TimeUnit.SECONDS.sleep(3);
+            System.exit(0);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 }

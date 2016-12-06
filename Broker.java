@@ -47,7 +47,7 @@ public class Broker {
 
     public void startListening() {
         try {
-            byte[] receiveData = new byte[10000];
+            byte[] receiveData = new byte[1000];
 
             System.out.printf("Listening on udp:%s:%d%n",
                     address, port);
@@ -66,26 +66,30 @@ public class Broker {
     }
 
     public void handleMessage(Message message, SocketAddress socketAddress) {
+        DatagramPacket sendPacket;
         switch (message.getMessageType()) {
             case SUBSCRIBE:
-                String sendString = "Thank you for subscribing to " + message.getTopic() + "!";
+//                System.out.println(message.getMessageType());
+//                String sendString = "Subscribed to " + message.getTopic();
                 addSubscriber(message.getTopic(), socketAddress);
-                byte[] sendData = sendString.getBytes();
-                DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, socketAddress);
-                try {
-                    datagramSocket.send(sendPacket);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+//                byte[] sendData = sendString.getBytes();
+//                sendPacket = new DatagramPacket(sendData, sendData.length, socketAddress);
+//                try {
+//                    datagramSocket.send(sendPacket);
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                }
                 break;
             case PUBLISH:
-                System.out.println("Your message '" + message.getText() + "' will be published to all subscribers of "
-                        + message.getTopic() + "!");
-                for (SocketAddress sa : subscribers.get(message.getTopic())) {
+//                System.out.println(message.getMessageType());
+//                System.out.println(safe(subscribers.get(message.getTopic())));
+                for (SocketAddress sa : safe(subscribers.get(message.getTopic()))) {
                     try {
-                        datagramSocket.send(new DatagramPacket(message.getText().getBytes(),
-                                message.getText().getBytes().length, sa));
-                    } catch (IOException e) {
+                        String sendString2 = message.getText();
+                        byte[] sendData2 = sendString2.getBytes();
+                        sendPacket = new DatagramPacket(sendData2, sendData2.length, sa);
+                        datagramSocket.send(sendPacket);
+                    } catch (NullPointerException | IOException e) {
                         e.printStackTrace();
                     }
                 }
@@ -105,6 +109,10 @@ public class Broker {
             subscribers.put(topic, new HashSet<>());
         }
         subscribers.get(topic).add(subscriber);
+    }
+
+    public static <T> Set<T> safe( Set<T> other ) {
+        return other == null ? Collections.emptySet() : other;
     }
 
     public static void main(String[] args) {
